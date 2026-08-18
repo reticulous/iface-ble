@@ -1,0 +1,9 @@
+description: "iface-ble: RNS over Bluetooth Low Energy, speaking the ble-reticulum v2.2 protocol (one rnsd interface per peer)."
+url: https://github.com/reticulous/iface-ble
+version: "0.1.0"
+license: "Apache-2.0"
+targets:
+  - esp32s3
+dependencies:
+  idf:
+    version: ">=5.5"

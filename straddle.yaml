@@ -1,0 +1,70 @@
+# iface-ble — RNS over the ble-reticulum v2.2 protocol.
+#
+# Discovers other implementations of the protocol over Bluetooth Low Energy —
+# Columba on Android, ble-reticulum on Linux, another reticulous node — and
+# gives each of them its own rnsd interface, so Reticulum sees a point-to-point
+# link per peer rather than one shared medium.
+#
+# Both roles at once: the device advertises the service and scans for it, and
+# which of two peers dials is decided by comparing their adapter addresses.
+schema_version: 1
+name: reticulous/iface-ble
+prefix: rns_ble
+version: 0.0.0
+firmware: esp-idf
+platforms: [idf]
+requires:
+  - reticulous/rns
+  # spangap-ble owns the host, the advertising instance, the scanner, the bond
+  # store and the connection budget. This straddle is a consumer of ble.h and
+  # initialises no Bluetooth of its own.
+  - spangap/spangap-ble
+
+# Boot-registered service: BleIfaceService::onInit() queues the v2.2 GATT
+# service with spangap-ble, registers the `ble_if` CLI verbs and registers with
+# the RNS lifecycle orchestrator. The task is spawned by rnsStart(), not here.
+services:
+  - { class: BleIfaceService, header: ble_iface.h }
+
+# Its own child node under the Reticulum pane, the shape iface-espnow has. The
+# KEYS live in spangap-ble's s.ble.* namespace: pane path and key namespace are
+# independent, and an operator should see one Bluetooth namespace.
+settings:
+  - at:
+      - { id: reticulum }
+      - { id: ble, label: "Bluetooth", short: "BT", order: 6 }
+    rows:
+      - section: "Bluetooth mesh"
+      - caption: "RNS over Bluetooth Low Energy, speaking the ble-reticulum v2.2 protocol. Phones running Columba and Linux nodes running ble-reticulum join the mesh directly; each peer becomes its own interface."
+      - switch: { label: "Enabled", key: "s.ble.rns.enable", default: 0 }
+      - slider:
+          label: "Maximum peers"
+          key: "s.ble.rns.max_peers"
+          min: 1
+          max: 4
+          default: 3
+      - caption: "Three leaves one Bluetooth connection for the RNode door; four is the radio's ceiling with the door off. The protocol itself allows seven, but the ESP32-S3's internal RAM does not carry that beside Wi-Fi."
+      - slider:
+          label: "Signal floor (dBm)"
+          key: "s.ble.rns.min_rssi"
+          min: -100
+          max: -50
+          default: -85
+      - slider:
+          label: "Scan interval (s)"
+          key: "s.ble.rns.scan_interval"
+          min: 1
+          max: 60
+          default: 5
+      - switch: { label: "Remember heard announces", key: "s.ble.rns.retain_announces", default: 0 }
+      - caption: "Off: destinations relayed through a phone's wider mesh are looked up on demand instead of filling this node's directory; the peer's own destinations are always kept. On: keep every announce heard here — for an isolated Bluetooth-only mesh."
+      - section: "Access code"
+      - caption: "IFAC: a network name + passphrase every peer on this interface must match, or traffic is dropped. Leave both blank for an open interface. One code for the whole radio — peers here are discovered, not configured."
+      - text: { label: "IFAC network", key: "s.ble.rns.ifac_netname" }
+      - text: { label: "IFAC passphrase", key: "secrets.ble.rns.ifac_netkey", secret: true }
+      - section: "Status"
+      - info:
+          rows:
+            - value: { label: "State", key: "ble.rns.state_text" }
+            - value: { label: "Peers", key: "ble.rns.peers" }
+            - value: { label: "Traffic", key: "ble.rns.traffic" }
