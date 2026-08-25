@@ -24,8 +24,8 @@ Phones running Columba and Linux nodes running ble-reticulum join the mesh
 directly — no gateway, no RNode emulation, no TCP in between.
 
 Each peer becomes its **own** rnsd interface rather than everyone sharing one,
-which is what upstream does and what gives correct split horizon and per-peer
-announce accounting.
+which is what upstream does and what keeps point-to-point echo suppression and
+per-peer announce accounting correct.
 
 ## Origins
 
@@ -46,12 +46,16 @@ is one of its consumers.
 When two peers see each other, who dials is decided by comparing their adapter
 addresses as integers: **the lower address becomes the central**. There is no
 negotiation and no retry from the other side. Our own address is a
-non-resolvable private one that rotates at Bluetooth start and after every
+resolvable private one that rotates at Bluetooth start and after every
 disconnect — the per-connection freshness phones get from their radios — so
-the election is deterministic while a pairing of addresses stands; and its
-top bits sort it below every phone's address, so against a phone this device
-is always the one that dials, which is the direction that stays healthy when
-the phone's own per-address bookkeeping goes stale.
+the election is deterministic while a pairing of addresses stands.
+Resolvable is [spangap-ble](../spangap-ble)'s choice, made so *bonded* peers
+recognise the device across rotations; Columba does not bond, so this
+straddle only pays its price: the address's top bits (01) match every
+phone's, and against a phone the dialling side is a per-rotation coin flip.
+The windows where the phone dials are the fragile direction when its own
+per-address bookkeeping goes stale; the identity handshake and the
+liveness-gated merge absorb the recovery.
 
 **Peers are named by identity, reached by address.** Android rotates its
 Bluetooth address about every fifteen minutes. The 16-byte RNS identity hash is
@@ -73,13 +77,13 @@ goes.
 ### What you will see in `rns ifaces`
 
 One entry per peer, named `ble/<first four bytes of their identity, hex>`,
-registered in **gateway mode** with MTU **500** and `point_to_point` (so a
-forwarded announce is never echoed back down the link it arrived on).
-Announces relayed through a phone peer's wider mesh are **not remembered by
-default** — the phone is a gateway, and this node looks those destinations up
-on demand rather than letting them fill its directory; the switch below flips
-that for an isolated Bluetooth-only mesh. The Bluetooth ATT MTU governs what
-one fragment carries and never reaches Reticulum.
+registered with the configured interface mode (default **access point**), MTU
+**500** and `point_to_point` (so a forwarded announce is never echoed back
+down the link it arrived on). The community radius (default 3) bounds what is
+served through a peer: announces relayed from a phone's wider mesh arrive
+deeper than the radius and are looked up on demand rather than filling this
+node's directory. The Bluetooth ATT MTU governs what one fragment carries and
+never reaches Reticulum.
 
 ### Starts automatically
 
@@ -90,7 +94,8 @@ ecosystem — there is no init call for a consumer to make.
 
 1. Put both straddles in the build:
    `spangap build --with spangap/spangap-ble --with reticulous/iface-ble`.
-2. Turn Bluetooth on: `set s.ble.enable=1` (or the Bluetooth pane's switch).
+2. Turn this interface on (below) — that is what turns the Bluetooth radio on.
+   The radio has no switch of its own; it runs while something asks for it.
 3. Turn the interface on: `set s.ble.rns.enable=1` (Reticulum → Bluetooth).
 4. `ble_if` and `ble_if peers` show what it finds.
 
@@ -106,10 +111,12 @@ by the Bluetooth stack to the attribute.
 | Key | Default | Meaning |
 |---|---|---|
 | `s.ble.rns.enable` | `0` | Master switch for this interface. Live. |
-| `s.ble.rns.max_peers` | `3` | Maximum simultaneous peers, 1–4. Three leaves one of the device's four Bluetooth connections for the RNode door; four is the ceiling with the door off. The protocol itself allows seven, but the ESP32-S3's internal RAM does not carry a larger controller beside Wi-Fi. Live; lowering it does not evict peers already linked. |
+| `s.ble.rns.txpower` | `9` | Transmit power in dBm for THIS interface's links. spangap-ble takes the loudest of its consumers for advertising and scanning, and puts each claimed connection on its own owner's level. Live. |
+| `s.ble.rns.max_peers` | `3` | Maximum simultaneous peers, 1–4. Three leaves one of the device's four Bluetooth connections for the RNode endpoint; four is the ceiling with that off. The protocol itself allows seven, but the ESP32-S3's internal RAM does not carry a larger controller beside Wi-Fi. Live; lowering it does not evict peers already linked. |
 | `s.ble.rns.min_rssi` | `-85` | Signal floor in dBm. An advertiser weaker than this is not dialled. Live. |
 | `s.ble.rns.scan_interval` | `5` | Discovery interval in seconds; sets the scan duty cycle. Live. |
-| `s.ble.rns.retain_announces` | `0` | Remember every announce heard on this interface. Off, destinations relayed through a phone's mesh are resolved on demand (the peer's own announces, path responses, claimed and in-use destinations are always kept); on is for an isolated Bluetooth-only mesh. Changing it drops every peer so they re-register. |
+| `s.ble.rns.mode` | `"access_point"` | interface mode applied to every peer's interface: `full`, `gateway`, `access_point`, `roaming`, `boundary`. Changing it drops every peer so they re-register. |
+| `s.ble.rns.community_radius` | `3` | Community Radius: nodes within this many hops via a Bluetooth peer are served — their announces kept and answered for, searches run on their behalf. The wider mesh a phone relays arrives deeper than the radius, stays out of this node's directory, and is resolved on demand (the peer's own announces, path responses, claimed and in-use destinations are always kept). Changing it drops every peer so they re-register. See `rns/README.md`. |
 | `s.ble.rns.ifac_netname` | `""` | IFAC network name. Blank at both ends = an open interface. Changing it drops every peer so they re-register. |
 | `s.ble.rns.ifac_size` | `0` | IFAC access-code length in bytes; `0` = rnsd's default. |
 
@@ -121,7 +128,7 @@ the pairing window belong to that straddle.
 
 | Key | Meaning |
 |---|---|
-| `secrets.ble.rns.ifac_netkey` | IFAC passphrase. One code for the whole radio — peers here are discovered, not configured, so there is nowhere to put a per-peer one. |
+| `s.ble.rns.ifac_netkey` | IFAC passphrase. One code for the whole radio — peers here are discovered, not configured, so there is nowhere to put a per-peer one. |
 
 The device's own RNS identity is read from `secrets.rnsd.identity`, owned by
 [rns](../rns); this straddle only takes its 16-byte hash.

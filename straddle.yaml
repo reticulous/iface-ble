@@ -32,39 +32,65 @@ services:
 settings:
   - at:
       - { id: reticulum }
-      - { id: ble, label: "Bluetooth", short: "BT", order: 6 }
+      - { id: interfaces }
+    order: 6
     rows:
-      - section: "Bluetooth mesh"
+      - heading: "Bluetooth"
       - caption: "RNS over Bluetooth Low Energy, speaking the ble-reticulum v2.2 protocol. Phones running Columba and Linux nodes running ble-reticulum join the mesh directly; each peer becomes its own interface."
-      - switch: { label: "Enabled", key: "s.ble.rns.enable", default: 0 }
-      - slider:
+      - switch: { label: "Enable Bluetooth mesh", key: "s.ble.rns.enable", default: 0 }
+      - caption: "This switch is what turns the Bluetooth radio on for the mesh — it runs while something asks for it."
+      - dropdown:
+          label: "Bluetooth tx power"
+          key: "s.ble.rns.txpower"
+          default: 9
+          options:
+            - { v: 0,  l: "0 dBm" }
+            - { v: 3,  l: "+3 dBm" }
+            - { v: 6,  l: "+6 dBm" }
+            - { v: 9,  l: "+9 dBm" }
+            - { v: 12, l: "+12 dBm" }
+            - { v: 15, l: "+15 dBm" }
+            - { v: 18, l: "+18 dBm" }
+            - { v: 20, l: "+20 dBm" }
+      - integer:
           label: "Maximum peers"
           key: "s.ble.rns.max_peers"
           min: 1
           max: 4
           default: 3
-      - caption: "Three leaves one Bluetooth connection for the RNode door; four is the radio's ceiling with the door off. The protocol itself allows seven, but the ESP32-S3's internal RAM does not carry that beside Wi-Fi."
-      - slider:
+      - caption: "Three leaves one Bluetooth connection for the RNode endpoint; four is the radio's ceiling with the endpoint's Bluetooth off. The protocol itself allows seven, but the ESP32-S3's internal RAM does not carry that beside Wi-Fi."
+      - integer:
           label: "Signal floor (dBm)"
           key: "s.ble.rns.min_rssi"
           min: -100
           max: -50
           default: -85
-      - slider:
+      - integer:
           label: "Scan interval (s)"
           key: "s.ble.rns.scan_interval"
           min: 1
           max: 60
           default: 5
-      - switch: { label: "Remember heard announces", key: "s.ble.rns.retain_announces", default: 0 }
-      - caption: "Off: destinations relayed through a phone's wider mesh are looked up on demand instead of filling this node's directory; the peer's own destinations are always kept. On: keep every announce heard here — for an isolated Bluetooth-only mesh."
-      - section: "Access code"
-      - caption: "IFAC: a network name + passphrase every peer on this interface must match, or traffic is dropped. Leave both blank for an open interface. One code for the whole radio — peers here are discovered, not configured."
-      - text: { label: "IFAC network", key: "s.ble.rns.ifac_netname" }
-      - text: { label: "IFAC passphrase", key: "secrets.ble.rns.ifac_netkey", secret: true }
-      - section: "Status"
       - info:
           rows:
             - value: { label: "State", key: "ble.rns.state_text" }
             - value: { label: "Peers", key: "ble.rns.peers" }
             - value: { label: "Traffic", key: "ble.rns.traffic" }
+      - advanced:
+          rows:
+            - dropdown:
+                label: "Interface mode"
+                key: "s.ble.rns.mode"
+                default: "access_point"
+                options:
+                  - { v: "access_point", l: "Access point" }
+                  - { v: "gateway",      l: "Gateway" }
+                  - { v: "full",         l: "Full" }
+                  - { v: "roaming",      l: "Roaming" }
+                  - { v: "boundary",     l: "Boundary" }
+            - integer: { label: "Community Radius", key: "s.ble.rns.community_radius", min: 0, max: 7, default: 3 }
+            - caption: "Nodes within this many hops via a Bluetooth peer are yours: their announces are kept and answered for, and searches run on their behalf. The wider mesh a phone relays stays out of this node's directory and is reached on demand."
+            - section: "Interface access code (IFAC)"
+            - caption: "A network name + passphrase every peer on this interface must match, or traffic is dropped. Leave both blank for an open interface. One code for the whole radio — peers here are discovered, not configured."
+            - text: { label: "IFAC network", key: "s.ble.rns.ifac_netname" }
+            - text: { label: "IFAC passphrase", key: "s.ble.rns.ifac_netkey", secret: true }

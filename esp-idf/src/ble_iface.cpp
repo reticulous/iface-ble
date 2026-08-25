@@ -71,7 +71,8 @@ uint8_t s_ownIdent[BLEIF_IDENT_LEN] = {};
 int  s_maxPeers        = 3;
 int  s_minRssi         = -85;
 int  s_scanIntervalMs  = 5000;
-int  s_retainAnnounces = 0;
+int  s_communityRadius = 3;
+uint8_t s_ifaceMode    = RNS_IFACE_MODE_ACCESS_POINT;
 char s_ifacNetname[32] = "";
 char s_ifacNetkey[64]  = "";
 int  s_ifacSize        = 0;
@@ -316,6 +317,8 @@ static void onBleConnect(const ble_event_t* ev) {
     if (!p) return;
     p->conn    = ev->conn;
     p->central = ev->central;
+    /* Ours: on this interface's own transmit power, not the radio's shared one. */
+    bleConnOwner(TAG, ev->conn);
     p->mtu     = ev->mtu ? ev->mtu : 23;
     p->lastSeenMs = millis();
     /* 15-30 ms. Fragmentation makes throughput a function of the connection
@@ -386,27 +389,36 @@ static void applyConfig(void) {
     char ifn[sizeof(s_ifacNetname)] = "";
     storageGetStr("s.ble.rns.ifac_netname", ifn, sizeof(ifn), "");
     char ifk[sizeof(s_ifacNetkey)] = "";
-    storageGetStr("secrets.ble.rns.ifac_netkey", ifk, sizeof(ifk), "");
+    storageGetStr("s.ble.rns.ifac_netkey", ifk, sizeof(ifk), "");
     int ifs = storageGetInt("s.ble.rns.ifac_size", 0);
-    int ret = storageGetInt("s.ble.rns.retain_announces", 0) != 0;
+    int radius = storageGetInt("s.ble.rns.community_radius", 3);
+    char modeStr[24] = "access_point";
+    storageGetStr("s.ble.rns.mode", modeStr, sizeof(modeStr), "access_point");
+    uint8_t m;
+    if      (strcmp(modeStr, "full")     == 0) m = RNS_IFACE_MODE_FULL;
+    else if (strcmp(modeStr, "gateway")  == 0) m = RNS_IFACE_MODE_GATEWAY;
+    else if (strcmp(modeStr, "roaming")  == 0) m = RNS_IFACE_MODE_ROAMING;
+    else if (strcmp(modeStr, "boundary") == 0) m = RNS_IFACE_MODE_BOUNDARY;
+    else                                       m = RNS_IFACE_MODE_ACCESS_POINT;
 
-    /* IFAC, max_peers and the retention stance are baked into a peer's
+    /* IFAC, max_peers, mode and the community radius are baked into a peer's
      * registration at handshake time, so a change to any drops the live peers
      * and lets them come back with the new settings — the same thing
      * iface-tcp does to its inbound. */
     bool churn = strcmp(ifn, s_ifacNetname) != 0 || strcmp(ifk, s_ifacNetkey) != 0
-              || ifs != s_ifacSize || ret != s_retainAnnounces;
+              || ifs != s_ifacSize || radius != s_communityRadius || m != s_ifaceMode;
 
     s_maxPeers        = mp;
     s_minRssi         = rssi;
     s_scanIntervalMs  = si;
     s_ifacSize        = ifs;
-    s_retainAnnounces = ret;
+    s_communityRadius = radius;
+    s_ifaceMode       = m;
     safeStrncpy(s_ifacNetname, ifn, sizeof(s_ifacNetname));
     safeStrncpy(s_ifacNetkey,  ifk, sizeof(s_ifacNetkey));
     s_enabled = en;
 
-    if (churn) for (auto& p : s_peers) if (p.used) peerDrop(&p, "access code changed");
+    if (churn) for (auto& p : s_peers) if (p.used) peerDrop(&p, "registration settings changed");
 
     if (!en || s_stop) {
         for (auto& p : s_peers) if (p.used) peerDrop(&p, en ? "stopping" : "disabled");
@@ -422,6 +434,7 @@ static void applyConfig(void) {
      * door needs one slot, and a reservation is what stops seven mesh peers
      * from taking it. */
     bleSlotReserve(TAG, s_maxPeers);
+    bleTxPower(TAG, storageGetInt("s.ble.rns.txpower", 9));
     bleUp(TAG);
     if (!bleIsUp()) { storageSet("ble.rns.state_text", "waiting for Bluetooth"); return; }
 
@@ -538,7 +551,7 @@ static void bleifTaskMain(void*) {
     bleifInstallNotifyRx();
 
     storageSubscribeChanges("s.ble.rns",       onCfgChange);
-    storageSubscribeChanges("secrets.ble.rns", onCfgChange);
+    
 
     for (;;) {
         s_configDirty = true;

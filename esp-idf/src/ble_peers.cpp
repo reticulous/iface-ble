@@ -3,18 +3,17 @@
  *
  * ONE rnsd INTERFACE PER PEER, not one for the medium. That is what upstream
  * does and what iface-tcp does for its inbound connections, and it is what
- * makes split horizon correct (`point_to_point = 1`: a forwarded announce is
+ * makes `point_to_point = 1` correct (a forwarded announce is
  * never echoed back down the link it arrived on) and announce accounting
  * per-peer. The cost is one of the global RNSD_MAX_IFACES per peer, shared
  * with lora, auto, espnow and every tcp peer.
  *
- * `retain_announces` defaults to 0: a phone peer is a GATEWAY relaying the
- * whole wider mesh, not an edge whose peers nobody else answers for, and
- * unrequested multi-hop announces would colonise the directory through it.
- * The direct peer itself stays reachable — path responses this node asked
- * for, claimed and in-use destinations are retained regardless (the
- * "resolved on demand" arm of the retention rule). `s.ble.rns.retain_announces`
- * flips the stance for a deliberately isolated BLE-only mesh.
+ * The community radius (`s.ble.rns.community_radius`, default 3) bounds what
+ * this node serves through a phone peer: announces within the radius are
+ * stored and answered for, while the wider mesh the phone relays stays out of
+ * the directory. The direct peer itself is always reachable — path responses
+ * this node asked for, claimed and in-use destinations are retained
+ * regardless (the "resolved on demand" arm of the retention rule).
  */
 #include "ble_iface_priv.h"
 
@@ -143,11 +142,12 @@ static void registerWithRnsd(bleif_peer_t* p) {
      * one fragment carries and never leaves this straddle. */
     reg.mtu     = BLEIF_RNS_MTU;
     reg.bitrate = (uint32_t)s_bitrate;
-    reg.mode    = RNS_IFACE_MODE_GATEWAY;
-    reg.in = reg.out = reg.fwd = 1;
+    reg.mode    = s_ifaceMode;
+    reg.in = reg.out = 1;
+    reg.fwd = (s_ifaceMode == RNS_IFACE_MODE_GATEWAY || s_ifaceMode == RNS_IFACE_MODE_FULL) ? 1 : 0;
     reg.rpt = 0;
     reg.point_to_point   = 1;
-    reg.retain_announces = (uint8_t)(s_retainAnnounces != 0);
+    reg.community_radius = (uint8_t)s_communityRadius;
     reg.announce_cap     = 0;        /* rnsd applies the RNS default of 2% */
     reg.ifac_size        = (uint8_t)s_ifacSize;
     safeStrncpy(reg.ifac_netname, s_ifacNetname, sizeof(reg.ifac_netname));

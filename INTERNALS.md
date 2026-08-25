@@ -176,9 +176,9 @@ The registration fields worth stating:
 |---|---|---|
 | `name` | `ble/<8 hex>` | first four bytes of the peer's identity; fits `name[24]` |
 | `mtu` | 500 | rnsd's `_FIXED_MTU`. The ATT MTU never leaks upward |
-| `mode` | `GATEWAY` | |
-| `point_to_point` | 1 | one peer per link ⇒ split horizon is correct |
-| `retain_announces` | `s.ble.rns.retain_announces`, default 0 | a phone peer relays the whole wider mesh — unrequested multi-hop announces must not colonise the directory through it. On-demand, claimed and in-use destinations are retained regardless; the switch exists for an isolated BLE-only mesh |
+| `mode` | `s.ble.rns.mode`, default `access_point` | |
+| `point_to_point` | 1 | one peer per link ⇒ nothing is echoed back to the peer that sent it |
+| `community_radius` | `s.ble.rns.community_radius`, default 3 | a phone peer relays the whole wider mesh — those announces arrive deeper than the radius and must not colonise the directory, while nodes within it are served. On-demand, claimed and in-use destinations are retained regardless |
 | `announce_cap` | 0 | rnsd applies the RNS default of 2 % |
 | `bitrate` | 100000 | **an estimate**, ~500 B per 30 ms interval at MTU 247. Not cosmetic: it feeds the first-hop link timeout and the announce throttle's airtime maths. Measure it and put the real number here. |
 
@@ -214,17 +214,21 @@ made ourselves.
 Advertising carries the service UUID and **no name**: 31 bytes will not hold a
 128-bit UUID and a name, which is exactly why v2.2 made the name optional.
 
-**Why our address rotates, and why it is non-resolvable.** Peers key
+**Why our address rotates, and what its type costs us.** Peers key
 per-address state by our address, and address-rotating peers clean that state
 unreliably — a device that presents the same address twice reconnects into
 whatever a peer failed to sweep, a bug class phones never exercise on each
 other because their radios mint a fresh address per connection attempt.
-spangap-ble gives us the same protection sequentially: a fresh non-resolvable
+spangap-ble gives us the same protection sequentially: a fresh resolvable
 private address at every host start, after every disconnect, and at latest
-every 15 minutes idle. Non-resolvable for its top bits: 00 sorts below every
-phone's resolvable private address (01), so the who-dials election always
-hands us the central role against phones — the direction that stays healthy
-when the phone's identity-keyed bookkeeping is stale (see the appendix). This
+every 15 minutes idle. Resolvable is spangap-ble's choice, made so its bonded
+consumers survive rotation; Columba does not bond, so this straddle only pays
+the price: an RPA's top bits (01) match every phone's, and the who-dials
+election against a phone is a per-rotation coin flip. The windows the phone
+dials are the direction that suffers when its identity-keyed bookkeeping is
+stale (see the appendix); the handshake and the liveness-gated merge carry
+the recovery. Only spangap-ble's privacy-failure fallback (a non-resolvable
+address, top bits 00, below every phone) makes the election always ours. This
 straddle's obligations are only to re-read `bleOwnAddr()` on `BLE_EV_UP` (the
 election input) and to tolerate being seen as a stranger each session — the
 identity handshake and the liveness-gated merge absorb that on both sides.
@@ -246,7 +250,7 @@ three characteristics can be discovered in any order.
   pairing dialog on a phone that is trying to join a mesh, and Columba does not
   bond.
 - **Re-read our address on every `BLE_EV_UP`.** spangap-ble generates a fresh
-  non-resolvable private address at every host start, after every disconnect
+  resolvable private address at every host start, after every disconnect
   and at latest every 15 minutes idle, and fires `BLE_EV_UP` again each time.
   The election is deterministic between rotations because the address is
   stable between rotations; a stale cached copy would have both ends dial at
@@ -319,17 +323,21 @@ new session is killed seconds after the identity handshake — until the entry
 ages past the 30 s zombie threshold or its periodic sweeper runs. This is
 address-independent: rotation cannot touch it, and it bounds a post-teardown
 outage at roughly half a minute. It is Columba's bug to fix; what contains it
-on our side is the election bias (below) plus our own dialling pressure.
+on our side is our own dialling pressure plus whichever rotation windows the
+election hands us (below).
 
 **3. The dialling direction is not symmetric.** In every observed episode,
 sessions the phone dialled died and sessions we dialled came up and carried
 traffic — their outbound path is where the stale bookkeeping bites. The
 who-dials election compares addresses, and the spec welds semantics to the
 top two bits of a random address: non-resolvable 00, phone RPA 01, random
-static 11. Choosing a non-resolvable address is therefore choosing to win
-the election against every phone, every rotation — the healthy direction is
-always on offer. (A random static address loses it every time; this was
-briefly shipped and it removed our dials from the board entirely.)
+static 11. A non-resolvable address wins the election against every phone,
+every rotation; a random static address loses it every time (briefly
+shipped, and it removed our dials from the board entirely). The resolvable
+address we run sits at 01 like the phones' — chosen by spangap-ble so bonds
+survive rotation — so the election is a per-rotation coin flip: half the
+windows start with the phone dialling, and recovery leans on the handshake
+and the liveness-gated merge.
 
 **4. Our own machinery can be its own denial of service.** A dial's outcome
 arrives as a host event, and host events can vanish — a queue overflow in a
