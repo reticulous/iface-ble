@@ -188,7 +188,10 @@ void peerAdoptIdent(bleif_peer_t* p, const uint8_t ident[BLEIF_IDENT_LEN]) {
         if (known->conn != BLE_HS_CONN_HANDLE_NONE && known->conn != p->conn &&
             known->stage == BLEIF_ST_READY &&
             millis() - known->lastSeenMs < BLEIF_KEEPALIVE_MS + 10000) {
-            info("%s: duplicate session from %s dropped (existing link is live)",
+            /* Routine, not an event: both sides rotate their address and both
+             * scanners keep rediscovering the other, so a duplicate per scan
+             * harvest is the steady state rather than a fault. */
+            dbg("%s: duplicate session from %s dropped (existing link is live)",
                  known->name, a);
             uint16_t dupConn = p->conn;
             uint8_t* keep = p->reasm;

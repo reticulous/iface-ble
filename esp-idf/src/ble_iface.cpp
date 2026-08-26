@@ -91,6 +91,11 @@ static int           s_advSlot     = -1;
 static bool          s_scanning    = false;
 static uint8_t       s_ownAddr[6]  = {};
 
+/* This interface's RNS announce beat (rnsdAnnounceBeat state). One beat for
+ * every peer, because the schedule belongs to the medium and not to any one
+ * link; a peer joining mid-interval is covered by its registration replay. */
+static uint32_t      s_annNextMs   = 0;
+
 void bleifWake(void) { if (s_task) xTaskNotifyGive(s_task); }
 
 void bleifInstallNotifyRx(void);
@@ -467,6 +472,15 @@ static void applyConfig(void) {
 
 static void onCfgChange(const char*, const char*) { s_configDirty = true; bleifWake(); }
 
+/* "Announce now" button. Hosted on the storage task: the handler is one
+ * fire-and-forget aux to rnsd, and there is nothing in it that wants this
+ * straddle's task or its peer table — the prefix covers every peer. */
+static void onAnnounceNow(const char* key, const char* val) {
+    if (!val || atoi(val) == 0) return;   /* the edge write's leading 0 is not a press */
+    storageUnset(key);
+    rnsdIfaceAnnounceNow("ble");
+}
+
 /* ─────────────── CLI ─────────────── */
 
 static const char* stageWord(uint8_t s) {
@@ -578,6 +592,14 @@ static void bleifTaskMain(void*) {
                 peerPublish();
             }
 
+            /* Say who we are to the peers we already have, on this interface's
+             * own schedule. A peer that connects mid-run needs nothing from
+             * here: it registers as its own rnsd interface, and rnsd's pinned
+             * replay tells it who we are within a second and a half. Read live
+             * so an edit takes effect without cycling anything. */
+            rnsdAnnounceBeat(&s_annNextMs,
+                             storageGetInt("s.ble.rns.announce_interval", 30), "ble");
+
             /* One second while enabled, so the keepalive and the reassembly
              * timeout have a tick; parked forever while disabled. */
             itsPoll(s_enabled ? pdMS_TO_TICKS(1000) : portMAX_DELAY);
@@ -625,6 +647,8 @@ void BleIfaceService::onInit() {
 
     cliRegisterCmd("ble_if",       cliBleif);
     cliRegisterCmd("ble_if peers", cliBleifPeers);
+
+    storageSubscribeChanges("ble.rns.announce_now", onAnnounceNow, /*onStorageTask=*/true);
 
     storageBegin();
     storageSet("ble.rns.state_text", "disabled");

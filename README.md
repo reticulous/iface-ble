@@ -115,6 +115,7 @@ by the Bluetooth stack to the attribute.
 | `s.ble.rns.max_peers` | `3` | Maximum simultaneous peers, 1–4. Three leaves one of the device's four Bluetooth connections for the RNode endpoint; four is the ceiling with that off. The protocol itself allows seven, but the ESP32-S3's internal RAM does not carry a larger controller beside Wi-Fi. Live; lowering it does not evict peers already linked. |
 | `s.ble.rns.min_rssi` | `-85` | Signal floor in dBm. An advertiser weaker than this is not dialled. Live. |
 | `s.ble.rns.scan_interval` | `5` | Discovery interval in seconds; sets the scan duty cycle. Live. |
+| `s.ble.rns.announce_interval` | `30` | How often this node says who it is: rnsd replays every hosted destination's announce onto every Bluetooth peer on this beat, jittered ±10 %. Minutes. `0` = never on this interface's own account — the node then says who it is only when an application changes what it advertises, when a peer arrives, or on the pane's **Announce now**. A peer that connects mid-interval is told at once regardless: it registers as its own interface and rnsd replays onto a fresh registration. Live. See [rns/README.md](../rns/README.md), "The announce beat". |
 | `s.ble.rns.mode` | `"access_point"` | interface mode applied to every peer's interface: `full`, `gateway`, `access_point`, `roaming`, `boundary`. Changing it drops every peer so they re-register. |
 | `s.ble.rns.community_radius` | `3` | Community Radius: nodes within this many hops via a Bluetooth peer are served — their announces kept and answered for, searches run on their behalf. The wider mesh a phone relays arrives deeper than the radius, stays out of this node's directory, and is resolved on demand (the peer's own announces, path responses, claimed and in-use destinations are always kept). Changing it drops every peer so they re-register. See `rns/README.md`. |
 | `s.ble.rns.ifac_netname` | `""` | IFAC network name. Blank at both ends = an open interface. Changing it drops every peer so they re-register. |
@@ -143,7 +144,9 @@ The device's own RNS identity is read from `secrets.rnsd.identity`, owned by
 
 ### Command sentinels
 
-None.
+| Key | Value | Effect |
+|---|---|---|
+| `ble.rns.announce_now` | any | Ask rnsd to replay every hosted destination's announce onto every Bluetooth peer now — the pane's **Announce now** button. |
 
 ## CLI
 

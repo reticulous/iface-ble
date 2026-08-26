@@ -71,6 +71,16 @@ settings:
           min: 1
           max: 60
           default: 5
+      # How often this node says who it is is a property of the MEDIUM, so it
+      # lives on each interface and not on any application: lxmf, rnsh and rlpg
+      # keep their announce current with rnsd and never schedule anything. A
+      # peer that connects mid-interval hears us within a second and a half
+      # regardless — it registers as its own interface, and rnsd replays onto a
+      # fresh registration — so this beat is only about the peers already here.
+      - section: "Announces"
+      - integer: { label: "Announce interval", unit: "min", key: "s.ble.rns.announce_interval", min: 0, max: 1440, default: 30 }
+      - caption: "How often this node tells its Bluetooth peers who it is. A peer that has just connected is always told at once. 0 = only that, plus whenever something changes or you press the button."
+      - button: { label: "Announce now", do: { set: { key: "ble.rns.announce_now", value: 1, edge: true } } }
       - info:
           rows:
             - value: { label: "State", key: "ble.rns.state_text" }
