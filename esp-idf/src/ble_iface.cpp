@@ -15,9 +15,10 @@
  * dials is decided by comparing the two adapter addresses as integers — the
  * lower one becomes the central. There is no negotiation and no retry from the
  * other side. Our own address rotates (spangap-ble: every host start, every
- * disconnect, 15-minute idle floor) but is stable in between, so the election
- * stays deterministic; the copy in s_ownAddr is re-read on every BLE_EV_UP,
- * which fires again after each rotation.
+ * disconnect this straddle did not exempt with bleConnKeepAddr, 15-minute idle
+ * floor) but is stable in between, so the election stays deterministic; the
+ * copy in s_ownAddr is re-read on every BLE_EV_UP, which fires again after
+ * each rotation.
  *
  * PEERS ARE NAMED BY IDENTITY, REACHED BY ADDRESS. Android rotates its address
  * about every fifteen minutes. The 16-byte identity hash is the peer's name and
@@ -218,7 +219,7 @@ static void deliverToRnsd(bleif_peer_t* p, const uint8_t* pkt, size_t len) {
 void bleifOnInbound(bleif_peer_t* p, const uint8_t* data, size_t len) {
     p->lastSeenMs = millis();
 
-    /* Wire-level ingress trace (`log tag bleif debug`): the raw ATT value as
+    /* Wire-level ingress trace (`log tag ble_if debug`): the raw ATT value as
      * received, before any interpretation. A v2.2 fragment reads
      * [01|02|03] [seq16] [total16]; anything else here is the peer speaking
      * a different framing than the fragment layer expects. */
@@ -258,7 +259,11 @@ void bleifOnInbound(bleif_peer_t* p, const uint8_t* data, size_t len) {
         uint16_t conn = p->conn;
         peerAdoptIdent(p, data);
         bleif_peer_t* q = peerByConn(conn);
-        if (q) q->stage = BLEIF_ST_READY;
+        if (q) {
+            q->stage = BLEIF_ST_READY;
+            bleConnKeepAddr(conn, false);   /* a session of its own: its end
+                                             * rotates as any session's does */
+        }
         return;
     }
     fragRecv(p, data, len, deliverToRnsd);
@@ -322,6 +327,11 @@ static void onBleConnect(const ble_event_t* ev) {
     if (!p) return;
     p->conn    = ev->conn;
     p->central = ev->central;
+    /* Opened alongside a link that is already up, so it may be a duplicate of
+     * that same peer — not knowable until its identity arrives. Hold the
+     * address until it proves itself a session of its own; see the READY
+     * transitions, which clear the mark. */
+    if (peerAnyReady(p)) bleConnKeepAddr(ev->conn, true);
     /* Ours: on this interface's own transmit power, not the radio's shared one. */
     bleConnOwner(TAG, ev->conn);
     p->mtu     = ev->mtu ? ev->mtu : 23;
@@ -361,6 +371,11 @@ bleif_peer_t* bleifClaimInbound(uint16_t conn, const uint8_t addr[6],
     p->mtu     = mtu ? mtu : 23;
     p->stage   = BLEIF_ST_SUBSCRIBE;       /* wait for their handshake */
     p->lastSeenMs = millis();
+    /* As in onBleConnect: a session that arrives beside a live one may be the
+     * same peer twice, and this side learns that only if the handshake comes.
+     * If the far side kills it first as ITS duplicate, the address must not
+     * rotate on the way out. */
+    if (peerAnyReady(p)) bleConnKeepAddr(conn, true);
     bleConnParams(conn, 12, 24, 0, 4000);
     return p;
 }
@@ -432,6 +447,7 @@ static void applyConfig(void) {
         bleSlotRelease(TAG);
         bleDown(TAG);
         storageSet("ble.rns.state_text", en ? "stopped" : "disabled");
+        bleifPublishPill();
         return;
     }
 
@@ -468,6 +484,17 @@ static void applyConfig(void) {
         s_scanning = bleScanStart(&r);
     }
     storageSet("ble.rns.state_text", peerCount() ? "linked" : "listening");
+    bleifPublishPill();
+}
+
+/* The status-bar pill: `B` and how many Bluetooth peers are attached. Published
+ * while the mesh switch is on, at 0 as readily as at 2 — "advertising and
+ * nobody has connected" is the state an operator most needs to see, and it is
+ * not the same as no pill at all. rnsd owns the keys and both status lines read
+ * them; the letter, the colour and the count are this straddle's to state. */
+void bleifPublishPill(void) {
+    if (s_enabled) rnsdPillSet("ble", 'B', peerReadyCount(), "7fc4ff", 6);
+    else           rnsdPillClear("ble");
 }
 
 static void onCfgChange(const char*, const char*) { s_configDirty = true; bleifWake(); }
@@ -504,8 +531,13 @@ static void cliBleif(const char* args) {
     if (args && cliWantsHelp(args)) {
         cliPrintf("%-*s RNS-over-Bluetooth interface status\n", CLI_HELP_COL, "ble_if");
         cliPrintf("%-*s one line per peer\n", CLI_HELP_COL, "ble_if peers");
+        cliPrintf("%-*s direct RNS peers (-v for detail)\n", CLI_HELP_COL, "ble_if n[eighbors]");
         return;
     }
+    /* `peers` is Bluetooth: which radios are attached. `neighbors` is
+     * Reticulum: which destinations are one hop away over them. Each peer is
+     * its own interface (`ble/<hex>`), so the prefix covers the lot. */
+    if (rnsdPeersCli(args, "ble", "Bluetooth")) return;
     cliPrintf("state:    %s\n", !s_enabled ? "disabled"
                               : !bleIsUp() ? "waiting for Bluetooth"
                               : peerCount() ? "linked" : "listening");
@@ -587,9 +619,14 @@ static void bleifTaskMain(void*) {
             /* At most 1 Hz: a pass runs per inbound fragment, and a storage
              * batch per fragment would churn the subscribers for nothing. */
             static uint32_t lastPubMs = 0;
-            if (uiTelemetryWanted() && now - lastPubMs >= 1000) {
+            if (now - lastPubMs >= 1000) {
                 lastPubMs = now;
-                peerPublish();
+                /* The pill regardless: it is two keys, deduped by the storage
+                 * actor when nothing moved, and a peer count that lags a
+                 * disconnect is worse on a status line than no count at all.
+                 * The readout lines are the churn, so they keep the gate. */
+                bleifPublishPill();
+                if (uiTelemetryWanted()) peerPublish();
             }
 
             /* Say who we are to the peers we already have, on this interface's
@@ -614,6 +651,7 @@ static void bleifTaskMain(void*) {
         bleSlotRelease(TAG);
         bleDown(TAG);
         storageSet("ble.rns.state_text", "stopped");
+        bleifPublishPill();
         s_parked = true;
         info("[%s] stopped", TAG);
         while (s_stop) itsPoll(portMAX_DELAY);

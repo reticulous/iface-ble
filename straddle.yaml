@@ -38,8 +38,13 @@ settings:
       - heading: "Bluetooth"
       - caption: "RNS over Bluetooth Low Energy, speaking the ble-reticulum v2.2 protocol. Phones running Columba and Linux nodes running ble-reticulum join the mesh directly; each peer becomes its own interface."
       - switch: { label: "Enable Bluetooth mesh", key: "s.ble.rns.enable", default: 0 }
+      # The caption stays visible with the switch off — it explains what the
+      # switch does, which is the one thing still worth reading there. Every row
+      # after it is gated: a radio that is not advertising has no tx power worth
+      # setting, no peer ceiling to enforce and no traffic to count.
       - caption: "This switch is what turns the Bluetooth radio on for the mesh — it runs while something asks for it."
-      - dropdown:
+      - when_key: "s.ble.rns.enable"
+        dropdown:
           label: "Bluetooth tx power"
           key: "s.ble.rns.txpower"
           default: 9
@@ -52,20 +57,24 @@ settings:
             - { v: 15, l: "+15 dBm" }
             - { v: 18, l: "+18 dBm" }
             - { v: 20, l: "+20 dBm" }
-      - integer:
+      - when_key: "s.ble.rns.enable"
+        integer:
           label: "Maximum peers"
           key: "s.ble.rns.max_peers"
           min: 1
           max: 4
           default: 3
       - caption: "Three leaves one Bluetooth connection for the RNode endpoint; four is the radio's ceiling with the endpoint's Bluetooth off. The protocol itself allows seven, but the ESP32-S3's internal RAM does not carry that beside Wi-Fi."
-      - integer:
+        when_key: "s.ble.rns.enable"
+      - when_key: "s.ble.rns.enable"
+        integer:
           label: "Signal floor (dBm)"
           key: "s.ble.rns.min_rssi"
           min: -100
           max: -50
           default: -85
-      - integer:
+      - when_key: "s.ble.rns.enable"
+        integer:
           label: "Scan interval (s)"
           key: "s.ble.rns.scan_interval"
           min: 1
@@ -77,16 +86,21 @@ settings:
       # peer that connects mid-interval hears us within a second and a half
       # regardless — it registers as its own interface, and rnsd replays onto a
       # fresh registration — so this beat is only about the peers already here.
-      - section: "Announces"
+      - { section: "Announces", when_key: "s.ble.rns.enable" }
       - integer: { label: "Announce interval", unit: "min", key: "s.ble.rns.announce_interval", min: 0, max: 1440, default: 30 }
+        when_key: "s.ble.rns.enable"
       - caption: "How often this node tells its Bluetooth peers who it is. A peer that has just connected is always told at once. 0 = only that, plus whenever something changes or you press the button."
+        when_key: "s.ble.rns.enable"
       - button: { label: "Announce now", do: { set: { key: "ble.rns.announce_now", value: 1, edge: true } } }
-      - info:
+        when_key: "s.ble.rns.enable"
+      - when_key: "s.ble.rns.enable"
+        info:
           rows:
             - value: { label: "State", key: "ble.rns.state_text" }
             - value: { label: "Peers", key: "ble.rns.peers" }
             - value: { label: "Traffic", key: "ble.rns.traffic" }
-      - advanced:
+      - when_key: "s.ble.rns.enable"
+        advanced:
           rows:
             - dropdown:
                 label: "Interface mode"

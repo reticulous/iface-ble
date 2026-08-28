@@ -48,7 +48,12 @@ addresses as integers: **the lower address becomes the central**. There is no
 negotiation and no retry from the other side. Our own address is a
 resolvable private one that rotates at Bluetooth start and after every
 disconnect — the per-connection freshness phones get from their radios — so
-the election is deterministic while a pairing of addresses stands.
+the election is deterministic while a pairing of addresses stands. The one
+teardown that **holds** the address is a duplicate session: a second link to
+a peer we are already linked to. Rotating there would hand that same peer's
+scanner a stranger to dial, whose session is the next duplicate, at the scan
+interval, indefinitely; holding the address instead lets the peer recognise
+us by it and stop dialling.
 Resolvable is [spangap-ble](../spangap-ble)'s choice, made so *bonded* peers
 recognise the device across rotations; Columba does not bond, so this
 straddle only pays its price: the address's top bits (01) match every
@@ -141,6 +146,7 @@ The device's own RNS identity is read from `secrets.rnsd.identity`, owned by
 | `ble.rns.state_text` | `disabled`, `stopped`, `waiting for Bluetooth`, `listening`, `linked` |
 | `ble.rns.peers` | Peer count, how many are linked, and each one's name and RSSI, as one finished line |
 | `ble.rns.traffic` | Packets in and out, as one finished line |
+| `rns.pill.ble.*` | The top status line's Bluetooth pill (light blue `7fc4ff`, order 6), written through rnsd: `B` and how many peers are **attached and carrying RNS** — peers at `BLEIF_ST_READY`, not slots. A slot is claimed the moment a dial starts and lives through six bring-up stages, which is what the connection budget has to reserve against but is not what an operator means by "peers"; counting slots reported three during a scan burst with one attached. Shown while the mesh switch is on and at 0 as readily as at 2 — "advertising and nobody has connected" is the state an operator most needs to see. Published every second regardless of `uiTelemetryWanted()`, unlike the readout lines: it is two deduped keys, and a peer count that lags a disconnect is worse on a status line than no count at all. See [rns/README](../rns/README.md#status-line-pills) |
 
 ### Command sentinels
 
@@ -154,6 +160,15 @@ The device's own RNS identity is read from `secrets.rnsd.identity`, owned by
 |---|---|
 | `ble_if` | Status: state, our identity and adapter address, peers against the cap, whether we are advertising and scanning, the signal floor and scan interval, and the bitrate registered with rnsd |
 | `ble_if peers` | One line per peer: name, role, stage, MTU, RSSI, fragments in and out |
+| `ble_if n[eighbors] [-v]` | Direct RNS peers heard over them — which destinations are one hop away, as against `peers`' question of which radios are attached. rnsd's shared neighbourhood table, the format every interface prints; see [rns/README](../rns/README.md#the-neighbourhood--who-is-one-hop-away). |
+
+Each Bluetooth peer is its own point-to-point interface, so the interface **is**
+the node: `ble_if n` shows one numbered block per peer with its destinations
+under it, not one row per destination. The registration carries the adapter
+address as `peer_label`, so a peer that has attached and not yet announced is a
+row under its MAC rather than a silence — and the interface registrations
+(`ble/<hex>`) stay out of the listing, being this straddle's plumbing rather than
+the neighbourhood.
 
 ## Interoperating
 

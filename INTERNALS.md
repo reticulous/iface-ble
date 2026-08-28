@@ -153,14 +153,29 @@ churn one of the global `RNSD_MAX_IFACES` and a storage batch that lxmf
 subscribes to, for nothing. The live connection, MTU, stage, discovered handles
 and new address are moved onto it and the temporary row is cleared.
 
-The merge is **liveness-gated**: with both sides rotating per connection, each
-side's scanner keeps rediscovering the other as a stranger and dialling it, so
-duplicate sessions arrive about once per scan harvest. If the row's existing
-connection is READY and carried anything within a keepalive-plus-margin window
-it is demonstrably alive, and the **newcomer** is dropped — adopting it would
-trade a working session for one the peer's own duplicate-identity check kills
-seconds later. Only a silent existing connection (a corpse whose supervision
-timeout has not expired) cedes to the new address.
+The merge is **liveness-gated**: a peer whose address changed under a live link
+is rediscovered as a stranger and dialled, so it arrives here twice. If the
+row's existing connection is READY and carried anything within a
+keepalive-plus-margin window it is demonstrably alive, and the **newcomer** is
+dropped — adopting it would trade a working session for one the peer's own
+duplicate-identity check kills seconds later. Only a silent existing connection
+(a corpse whose supervision timeout has not expired) cedes to the new address.
+
+Dropping the newcomer **holds the adapter address** (`bleConnKeepAddr()`) and
+charges the dial gate a failure. Both matter, and between two nodes running
+this straddle both are load-bearing: each side rotates per disconnect, so
+killing a duplicate would put a fresh address on air, the peer on the other end
+of the link we just kept would rediscover us as a stranger and dial, and its
+session would be the next duplicate — a loop at the scan interval that runs
+until something else breaks it. The dial gate cannot: it is address-keyed, and
+a rotation gives every attempt a fresh address and therefore a clean record.
+Holding the address makes the peer's `peerByAddr()` lookup hit its existing row
+and skip the dial entirely, and makes the gate's rate limit and back-off apply
+if it dials anyway. The side that is *terminated on* must hold it too — it
+learns nothing about the identity behind a session that dies before its
+handshake, so it holds the address for any session opened while another is
+already READY (`peerAnyReady()`), and releases it when that session reaches
+READY itself.
 
 Each peer's reassembly buffer is allocated once from PSRAM and **kept across
 `peerDrop`**, so a peer table that churns does not churn the heap with it.
@@ -196,7 +211,12 @@ after three failures, so a peer that advertises but refuses cannot turn the scan
 into a dial loop. The gate is **address-keyed and lives outside the peer
 table** (`ble_peers.cpp`): `peerDrop` wipes the row, so the row cannot be where
 the failure count survives. `peerDrop` charges a failure for any dialled peer
-that never reached READY; reaching READY clears the record.
+that never reached READY, as does the duplicate-session drop in
+`peerAdoptIdent()`, which wipes its row without going through `peerDrop`;
+reaching READY clears the record. The gate only bites while the peer's address
+holds still — a peer that rotates per attempt presents a clean record every
+time, which is why a duplicate teardown holds our address rather than
+rotating it.
 
 **An inbound central is claimed at its first PROOF of protocol, never at
 connect.** The radio is shared with the RNode door, and at `BLE_EV_CONNECT`
@@ -229,9 +249,13 @@ dials are the direction that suffers when its identity-keyed bookkeeping is
 stale (see the appendix); the handshake and the liveness-gated merge carry
 the recovery. Only spangap-ble's privacy-failure fallback (a non-resolvable
 address, top bits 00, below every phone) makes the election always ours. This
-straddle's obligations are only to re-read `bleOwnAddr()` on `BLE_EV_UP` (the
-election input) and to tolerate being seen as a stranger each session — the
-identity handshake and the liveness-gated merge absorb that on both sides.
+straddle's obligations are to re-read `bleOwnAddr()` on `BLE_EV_UP` (the
+election input), to tolerate being seen as a stranger each session — the
+identity handshake and the liveness-gated merge absorb that on both sides —
+and to mark a duplicate session `bleConnKeepAddr()` so its teardown does not
+rotate. Rotation protects against a peer's stale per-address state; a peer we
+still hold a working link to has none to escape, and rotating for it only
+manufactures the next duplicate.
 
 The bring-up machine has a **15 s stage timeout** (`centralStep`). Each stage is
 entered by the previous stage's result, so nothing polls; the timeout exists
@@ -309,10 +333,18 @@ maps without firing per-peer callbacks, and Android's own `close()` which
 drops connections callback-free. Between two phones none of this matters:
 every connection arrives from a fresh resolvable private address, so a stale
 row is orphaned the moment it forms and no new session ever merges into it.
-Our original fixed adapter address rendezvoused with the same stale rows
+A fixed adapter address rendezvouses with the same stale rows
 forever — the unbounded flap. The cure is to be what a phone is: a fresh
 address per connection (spangap-ble rotates per disconnect), which makes
 every stale row on the far side unreachable the moment it forms.
+
+The duplicate-session exemption (`bleConnKeepAddr()`) does not reopen this.
+The hazard here is a session that *established* and left state behind on a
+peer that then lost it; the exemption covers only a session torn down as a
+duplicate of a link that is still up, which is a different peer state
+entirely — that peer is not lost, it is being talked to. Every session that
+ends on its own account still rotates, which is the case this appendix is
+about.
 
 **2. Identity-keyed state on the peer — the bounded flap that remains.**
 Above the bridge, Columba's Python `BLEInterface` keys by RNS identity, which
@@ -348,14 +380,16 @@ all three for hours while the logs showed only the peer misbehaving. The
 dial watchdog (spangap-ble) force-fails any dial unresolved past its own
 timeout plus margin; nothing gates on a single event arriving anymore.
 
-**5. Rotation's own tax, and the merge policy.** With both sides rotating,
-both scanners rediscover each other as strangers about once a minute and dial
-— a throwaway duplicate session per scan harvest, by design. The peer kills
-its duplicate in favour of the standing session; our merge originally did the
-opposite (newest wins), so their doomed duplicate evicted our healthy link
-every minute, metronomically. The liveness gate in `peerAdoptIdent()` ends
-that: a READY session with inbound traffic inside a keepalive-plus-margin
-window outranks any newcomer; only a silent session cedes to a new address.
+**5. Rotation's own tax, and the merge policy.** A peer that rotates under a
+live link is rediscovered as a stranger and dialled, so a throwaway duplicate
+session arrives per rotation window. Both ends must resolve it the same way,
+and both must resolve it without rotating — otherwise each teardown mints the
+next stranger and the tax becomes a flap at the scan interval rather than one
+connection per rotation. The liveness gate in `peerAdoptIdent()` settles which
+session wins: a READY session with inbound traffic inside a
+keepalive-plus-margin window outranks any newcomer; only a silent session
+cedes to a new address. Losing that gate to a newest-wins merge lets the
+peer's doomed duplicate evict a healthy link, metronomically.
 
 Steady state after all five: one rnsd registration per peer surviving address
 handovers on both sides, duplicate dials bounced within a second, a peer

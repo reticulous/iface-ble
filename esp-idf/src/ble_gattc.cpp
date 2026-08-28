@@ -273,6 +273,9 @@ void centralDrain(void) {
                 ble_gattc_read(p->conn, p->peerId, onReadIdent, nullptr);
             } else if (p->stage == BLEIF_ST_HANDSHAKE) {
                 p->stage = BLEIF_ST_READY;
+                bleConnKeepAddr(p->conn, false);   /* a session of its own: its
+                                                    * end rotates as any
+                                                    * session's does */
                 p->lastTxMs = millis();
                 dialClear(p->addr);      /* a working peer starts with a clean record */
                 info("%s: link up (mtu %u)", p->name, (unsigned)p->mtu);

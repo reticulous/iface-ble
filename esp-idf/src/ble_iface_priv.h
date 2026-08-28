@@ -150,6 +150,11 @@ void dialStamp(const uint8_t addr[6], uint32_t delayMs);
 void dialPenalize(const uint8_t addr[6]);
 void dialClear(const uint8_t addr[6]);
 
+/** True while some row other than `except` holds a live READY session. A new
+ *  session opened in that state may be a duplicate of the peer already linked,
+ *  which is not knowable until its identity arrives — see bleConnKeepAddr. */
+bool peerAnyReady(const bleif_peer_t* except);
+
 bleif_peer_t* peerByConn(uint16_t conn);
 bleif_peer_t* peerByAddr(const uint8_t addr[6]);
 bleif_peer_t* peerByIdent(const uint8_t ident[BLEIF_IDENT_LEN]);
@@ -157,7 +162,14 @@ bleif_peer_t* peerAlloc(const uint8_t addr[6], uint8_t addrType);
 void          peerAdoptIdent(bleif_peer_t* p, const uint8_t ident[BLEIF_IDENT_LEN]);
 void          peerDrop(bleif_peer_t* p, const char* why);
 int           peerCount(void);
+/* Peers at BLEIF_ST_READY — attached and carrying RNS. peerCount() includes
+ * every slot a dial has claimed, which is what the connection budget reserves
+ * against but not what an operator means by "peers". */
+int           peerReadyCount(void);
 void          peerPublish(void);
+/* The `B<n>` status-bar pill — the mesh switch and the attached-peer count.
+ * Lives in ble_iface.cpp, where the switch does. */
+void          bleifPublishPill(void);
 
 /* ── ble_frag.cpp ── */
 /** Fragment `data` and hand each fragment to `emit`. Returns false the moment

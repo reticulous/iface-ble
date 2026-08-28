@@ -84,6 +84,13 @@ void dialClear(const uint8_t addr[6]) {
 
 /* ─────────────── lookup ─────────────── */
 
+bool peerAnyReady(const bleif_peer_t* except) {
+    for (auto& p : s_peers)
+        if (p.used && &p != except && p.stage == BLEIF_ST_READY
+                && p.conn != BLE_HS_CONN_HANDLE_NONE) return true;
+    return false;
+}
+
 bleif_peer_t* peerByConn(uint16_t conn) {
     for (auto& p : s_peers)
         if (p.used && p.conn == conn && conn != BLE_HS_CONN_HANDLE_NONE) return &p;
@@ -106,6 +113,17 @@ bleif_peer_t* peerByIdent(const uint8_t ident[BLEIF_IDENT_LEN]) {
 int peerCount(void) {
     int n = 0;
     for (auto& p : s_peers) if (p.used) n++;
+    return n;
+}
+
+/* Peers actually carrying RNS. A slot is claimed the moment a dial starts and
+ * lives through six bring-up stages, so `peerCount` is what the CONNECTION
+ * BUDGET has to reserve against — but it is not how many peers this node has.
+ * A scan burst with two dials in flight would otherwise report three peers with
+ * one attached, which is what an operator reads off the status line. */
+int peerReadyCount(void) {
+    int n = 0;
+    for (auto& p : s_peers) if (p.used && p.stage == BLEIF_ST_READY) n++;
     return n;
 }
 
@@ -147,6 +165,12 @@ static void registerWithRnsd(bleif_peer_t* p) {
     reg.fwd = (s_ifaceMode == RNS_IFACE_MODE_GATEWAY || s_ifaceMode == RNS_IFACE_MODE_FULL) ? 1 : 0;
     reg.rpt = 0;
     reg.point_to_point   = 1;
+    /* Who is at the far end, for the neighbourhood listing to show until this
+     * peer's first announce names it — a peer that has attached and said
+     * nothing is still a row rather than a silence. The adapter address is what
+     * an operator has to compare against the other device. */
+    snprintf(reg.peer_label, sizeof(reg.peer_label), "%02X:%02X:%02X:%02X:%02X:%02X",
+             p->addr[5], p->addr[4], p->addr[3], p->addr[2], p->addr[1], p->addr[0]);
     reg.community_radius = (uint8_t)s_communityRadius;
     reg.announce_cap     = 0;        /* rnsd applies the RNS default of 2% */
     reg.ifac_size        = (uint8_t)s_ifacSize;
@@ -178,28 +202,37 @@ void peerAdoptIdent(bleif_peer_t* p, const uint8_t ident[BLEIF_IDENT_LEN]) {
         char a[20];
         snprintf(a, sizeof(a), "%02X:%02X:%02X:%02X:%02X:%02X",
                  p->addr[5], p->addr[4], p->addr[3], p->addr[2], p->addr[1], p->addr[0]);
-        /* Liveness gate: both sides rotate, so both scanners keep
-         * rediscovering the other as a stranger and dialling it — one
-         * duplicate session per scan harvest. A READY session with inbound
-         * traffic inside a keepalive-plus-margin window outranks any
-         * newcomer (adopting one trades a working session for one the peer's
-         * own duplicate check kills seconds later); only a silent session —
-         * possibly a corpse awaiting its supervision timeout — cedes. */
+        /* Liveness gate: a peer whose address changed under a live link is
+         * rediscovered as a stranger and dialled, so it arrives here twice.
+         * A READY session with inbound traffic inside a keepalive-plus-margin
+         * window outranks any newcomer (adopting one trades a working session
+         * for one the peer's own duplicate check kills seconds later); only a
+         * silent session — possibly a corpse awaiting its supervision timeout
+         * — cedes. */
         if (known->conn != BLE_HS_CONN_HANDLE_NONE && known->conn != p->conn &&
             known->stage == BLEIF_ST_READY &&
             millis() - known->lastSeenMs < BLEIF_KEEPALIVE_MS + 10000) {
-            /* Routine, not an event: both sides rotate their address and both
-             * scanners keep rediscovering the other, so a duplicate per scan
-             * harvest is the steady state rather than a fault. */
-            dbg("%s: duplicate session from %s dropped (existing link is live)",
+            info("%s: duplicate session from %s dropped (existing link is live)",
                  known->name, a);
             uint16_t dupConn = p->conn;
+            /* A dial that ended here never reached READY, so it owes the gate
+             * a failure exactly as peerDrop would charge one — this path wipes
+             * the row itself and never goes through peerDrop. */
+            if (p->central) dialPenalize(p->addr);
             uint8_t* keep = p->reasm;
             *p = bleif_peer_t{};
             p->reasm = keep;
             p->conn  = BLE_HS_CONN_HANDLE_NONE;
             p->rnsd  = -1;
-            if (dupConn != BLE_HS_CONN_HANDLE_NONE) bleDisconnect(dupConn);
+            if (dupConn != BLE_HS_CONN_HANDLE_NONE) {
+                /* Hold the address across this teardown. Rotating here would
+                 * put a stranger on air for the very peer on the other end of
+                 * the link we just kept, whose scanner would dial it and
+                 * arrive as the next duplicate; holding it lets that peer
+                 * match us by address and never dial at all. */
+                bleConnKeepAddr(dupConn, true);
+                bleDisconnect(dupConn);
+            }
             peerPublish();
             return;
         }
@@ -296,4 +329,5 @@ void peerPublish(void) {
     snprintf(buf, sizeof(buf), "in %u \xC2\xB7 out %u packets", (unsigned)in, (unsigned)out);
     storageSet("ble.rns.traffic", buf);
     storageEnd();
+    bleifPublishPill();
 }
