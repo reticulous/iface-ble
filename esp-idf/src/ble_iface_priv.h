@@ -166,6 +166,22 @@ int           peerCount(void);
  * every slot a dial has claimed, which is what the connection budget reserves
  * against but not what an operator means by "peers". */
 int           peerReadyCount(void);
+
+/** Give rnsd any READY peer it has not been told about.
+ *
+ *  Registration used to be a ONE-SHOT at identity handover: if that single
+ *  itsConnect failed — rnsd not up yet, ITS momentarily full, a `rns stop`
+ *  landing mid-handshake — the peer stayed READY forever with no rnsd
+ *  interface. It counted on the status pill and was invisible to everything
+ *  that reads rnsd: the neighbourhood listing, the network graph, routing.
+ *  A count that disagrees with the picture beside it is exactly the shape of
+ *  bug nobody can diagnose from the outside.
+ *
+ *  So registration converges instead of being attempted: call this from the
+ *  interface's own tick and a peer that failed to register is registered on the
+ *  next one. Idempotent and cheap — a peer that already has its interface costs
+ *  a compare. */
+void          peerSyncRnsd(void);
 void          peerPublish(void);
 /* The `B<n>` status-bar pill — the mesh switch and the attached-peer count.
  * Lives in ble_iface.cpp, where the switch does. */

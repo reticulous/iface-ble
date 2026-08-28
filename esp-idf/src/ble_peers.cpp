@@ -187,6 +187,22 @@ static void registerWithRnsd(bleif_peer_t* p) {
          (unsigned)reg.mtu, (unsigned)reg.bitrate);
 }
 
+void peerSyncRnsd(void) {
+    /* Only while rnsd is actually up: a failed itsConnect costs its timeout,
+     * and spending that once a second per peer while the ecosystem is down
+     * would be a busy-wait wearing a reconcile's clothes. */
+    if (!storageGetInt("rnsd.up", 0)) return;
+    for (auto& p : s_peers) {
+        if (!p.used || p.rnsd >= 0 || !p.haveIdent) continue;
+        if (p.stage != BLEIF_ST_READY) continue;
+        registerWithRnsd(&p);
+        if (p.rnsd >= 0) {
+            info("%s: registered late — rnsd was not ready at handshake", p.name);
+            peerPublish();
+        }
+    }
+}
+
 /* ─────────────── identity adoption ───────────────
  *
  * The one place two rows become one. A peer whose address rotated arrives as a

@@ -492,8 +492,16 @@ static void applyConfig(void) {
  * nobody has connected" is the state an operator most needs to see, and it is
  * not the same as no pill at all. rnsd owns the keys and both status lines read
  * them; the letter, the colour and the count are this straddle's to state. */
+/* The colour and the placement, apart from the pill: the network graph draws
+ * Bluetooth links between OTHER nodes, on devices whose own Bluetooth is off,
+ * and those lines are still Bluetooth. rnsdPillColor states them from boot; the
+ * pill itself still comes and goes with the switch. */
+#define BLEIF_PILL_COLOR "4d90ff"
+#define BLEIF_PILL_ORDER 6
+#define BLEIF_PILL_TITLE "ble (Bluetooth)"
+
 void bleifPublishPill(void) {
-    if (s_enabled) rnsdPillSet("ble", 'B', peerReadyCount(), "7fc4ff", 6);
+    if (s_enabled) rnsdPillSet("ble", 'B', peerReadyCount(), BLEIF_PILL_COLOR, BLEIF_PILL_ORDER);
     else           rnsdPillClear("ble");
 }
 
@@ -629,6 +637,12 @@ static void bleifTaskMain(void*) {
                 if (uiTelemetryWanted()) peerPublish();
             }
 
+            /* Anything READY that rnsd has not been told about. Registration is
+             * attempted once at identity handover and that attempt can fail;
+             * without this the peer would stay live, counted on the pill, and
+             * absent from every surface that reads rnsd. */
+            peerSyncRnsd();
+
             /* Say who we are to the peers we already have, on this interface's
              * own schedule. A peer that connects mid-run needs nothing from
              * here: it registers as its own rnsd interface, and rnsd's pinned
@@ -682,6 +696,8 @@ void BleIfaceService::onInit() {
      * GATT registry only exists between nimble_port_init() and the host start.
      * BLEIF_SVCS is static const and outlives the process. */
     bleGattAdd(BLEIF_SVCS);
+
+    rnsdPillColor("ble", BLEIF_PILL_COLOR, BLEIF_PILL_ORDER, BLEIF_PILL_TITLE);
 
     cliRegisterCmd("ble_if",       cliBleif);
     cliRegisterCmd("ble_if peers", cliBleifPeers);
