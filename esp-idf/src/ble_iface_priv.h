@@ -136,8 +136,10 @@ void bleifWake(void);
  *  connection's first PROOF of the protocol — its subscribe to our TX, or a
  *  bare identity handshake written to our RX. A bare connect is never proof:
  *  it may belong to another consumer (the RNode door shares the radio).
- *  Returns the row, or nullptr (disabled, or table full — full disconnects,
- *  which is safe exactly because the connection has proven itself ours). */
+ *  Returns the row, or nullptr (disabled, or every slot attached or
+ *  dialling — a refusal
+ *  disconnects, which is safe exactly because the connection has proven itself
+ *  ours, and holds the address so the refused peer's own dial gate bites). */
 bleif_peer_t* bleifClaimInbound(uint16_t conn, const uint8_t addr[6],
                                 uint8_t addrType, uint16_t mtu);
 
@@ -161,6 +163,11 @@ bleif_peer_t* peerByIdent(const uint8_t ident[BLEIF_IDENT_LEN]);
 bleif_peer_t* peerAlloc(const uint8_t addr[6], uint8_t addrType);
 void          peerAdoptIdent(bleif_peer_t* p, const uint8_t ident[BLEIF_IDENT_LEN]);
 void          peerDrop(bleif_peer_t* p, const char* why);
+/** Free one slot for an inbound connection that has proven the protocol, by
+ *  dropping the stalest row that has neither reached READY nor a dial's
+ *  outcome. Nothing is evicted while every row is one of those; true if a slot
+ *  came free. */
+bool          peerEvictForInbound(void);
 int           peerCount(void);
 /* Peers at BLEIF_ST_READY — attached and carrying RNS. peerCount() includes
  * every slot a dial has claimed, which is what the connection budget reserves

@@ -365,7 +365,33 @@ bleif_peer_t* bleifClaimInbound(uint16_t conn, const uint8_t addr[6],
                                 uint8_t addrType, uint16_t mtu) {
     if (!s_enabled || s_stop) return nullptr;
     bleif_peer_t* p = peerAlloc(addr, addrType);
-    if (!p) { bleDisconnect(conn); return nullptr; }    /* table full */
+    /* Full. A peer that has just proven the protocol outranks a row still in
+     * bring-up, which has proven nothing and may sit there for the whole stage
+     * timeout — so the stalest of those cedes its slot before anyone is turned
+     * away. Nothing cedes while every row is attached or dialling. */
+    if (!p && peerEvictForInbound()) p = peerAlloc(addr, addrType);
+    if (!p) {
+        /* HOLD THE ADDRESS across the refusal:
+         * rotating here would put a stranger on air for the very peer just
+         * refused, whose per-address dial gate would never see the same
+         * address twice and would dial again within the second — a refusal
+         * loop that costs an adv+scan restart per turn. Refused peers wait on
+         * their gate instead. */
+        bleConnKeepAddr(conn, true);
+        bleDisconnect(conn);
+        /* Rate-limited: the refusals come in bursts, and one line per turn
+         * would bury the reason the table is full. */
+        static uint32_t lastMs = 0, count = 0;
+        count++;
+        if (millis() - lastMs >= 10000) {
+            lastMs = millis();
+            warn("inbound peer refused — all %d peer slots attached or "
+                 "dialling (%u refusal%s)", s_maxPeers, (unsigned)count,
+                 count == 1 ? "" : "s");
+            count = 0;
+        }
+        return nullptr;
+    }
     p->conn    = conn;
     p->central = false;
     p->mtu     = mtu ? mtu : 23;

@@ -303,6 +303,28 @@ void peerDrop(bleif_peer_t* p, const char* why) {
     peerPublish();
 }
 
+bool peerEvictForInbound(void) {
+    /* The stalest row that never reached READY. A dial spends up to the
+     * bring-up timeout in the discovery stages and a scan can hold one at IDLE
+     * behind the dial gate; neither is worth a peer that has already spoken
+     * v2.2 at us. lastSeenMs is stamped at every stage transition, so
+     * "stalest" is whichever has gone longest without progress.
+     *
+     * NOT A ROW AT DIALLING. Its connection handle does not exist yet, so
+     * peerDrop has nothing to hang up; the dial would land seconds later on a
+     * row that is gone, and onBleConnect leaves an unknown address alone —
+     * a connection nothing owns, held until the far side tires of it. */
+    bleif_peer_t* victim = nullptr;
+    for (auto& p : s_peers) {
+        if (!p.used || p.stage == BLEIF_ST_READY || p.stage == BLEIF_ST_DIALLING)
+            continue;
+        if (!victim || (int32_t)(p.lastSeenMs - victim->lastSeenMs) < 0) victim = &p;
+    }
+    if (!victim) return false;
+    peerDrop(victim, "slot ceded to an inbound peer");
+    return true;
+}
+
 static void onRnsdDisconnect(int ref) {
     if (ref < 0 || ref >= BLEIF_MAX_PEERS) return;
     bleif_peer_t& p = s_peers[ref];

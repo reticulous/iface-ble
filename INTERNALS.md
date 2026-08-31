@@ -227,9 +227,23 @@ the row (`bleifClaimInbound`): a subscribe to *our* TX characteristic, or a
 bare 16-byte identity handshake written to *our* RX — Columba in the field
 writes its handshake without subscribing first, whatever order the sketch
 draws, so the subscribe alone would drop every one of its writes in silence.
-A full table may safely refuse a proven peer by disconnecting.
 `BLE_EV_CONNECT` therefore only touches rows that already exist — the dials we
 made ourselves.
+
+**A proven inbound peer outranks a row still in bring-up.** With the table
+full, `bleifClaimInbound` first has `peerEvictForInbound()` drop the stalest
+row that never reached READY: a dial can hold a slot for the whole 15 s stage
+timeout and a scan can hold one at IDLE behind the dial gate, and neither has
+proven anything, while the peer in front of us just spoke v2.2. A row at
+DIALLING is spared — it has no connection handle yet, so dropping it would
+leave the dial to land on a row that is gone and a connection nobody owns.
+Only when every slot is READY or dialling is the connection refused — and a
+refusal **holds our address** (`bleConnKeepAddr`) before disconnecting. Rotating there
+would present the refused peer a stranger within the second, its address-keyed
+dial gate would never see the same address twice, and the refusal would repeat
+for as long as the table stayed full, at an advertising and scan restart per
+turn. The refusal is logged, rate-limited to one line per 10 s with the count,
+because the connect/disconnect pair is otherwise the only trace it leaves.
 
 Advertising carries the service UUID and **no name**: 31 bytes will not hold a
 128-bit UUID and a name, which is exactly why v2.2 made the name optional.
