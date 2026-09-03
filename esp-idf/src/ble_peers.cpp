@@ -294,7 +294,13 @@ void peerDrop(bleif_peer_t* p, const char* why) {
      * is half gone. */
     if (p->rnsd >= 0) { itsDisconnect(p->rnsd); p->rnsd = -1; }
     if (p->conn != BLE_HS_CONN_HANDLE_NONE) bleDisconnect(p->conn);
-    info("%s: dropped (%s)", p->name, why);
+    /* Only a peer that got as far as naming itself is news. A row without an
+     * identity is a stranger that connected, subscribed and left before saying
+     * who it was; it never carried a frame, so its going costs nothing and
+     * there is nothing to name in the line but "?" — and a scanner that keeps
+     * doing it turns the log into a metronome. */
+    if (p->haveIdent) info("%s: dropped (%s)", p->name, why);
+    else              dbg("%s: dropped (%s)", p->name, why);
     uint8_t* keep = p->reasm;
     *p = bleif_peer_t{};
     p->reasm = keep;          /* the buffer is recycled by the next peer */
