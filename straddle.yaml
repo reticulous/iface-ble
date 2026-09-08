@@ -81,7 +81,7 @@ settings:
           max: 60
           default: 5
       # How often this node says who it is is a property of the MEDIUM, so it
-      # lives on each interface and not on any application: lxmf, rnsh and rlpg
+      # lives on each interface and not on any application: lxmf, rnsh and lxmproxy
       # keep their announce current with rnsd and never schedule anything. A
       # peer that connects mid-interval hears us within a second and a half
       # regardless — it registers as its own interface, and rnsd replays onto a
