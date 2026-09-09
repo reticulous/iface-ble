@@ -84,7 +84,7 @@ goes.
 One entry per peer, named `ble/<first four bytes of their identity, hex>`,
 registered with the configured interface mode (default **access point**), MTU
 **500** and `point_to_point` (so a forwarded announce is never echoed back
-down the link it arrived on). The community radius (default 3) bounds what is
+down the link it arrived on). The service radius (default 3) bounds what is
 served through a peer: announces relayed from a phone's wider mesh arrive
 deeper than the radius and are looked up on demand rather than filling this
 node's directory. The Bluetooth ATT MTU governs what one fragment carries and
@@ -120,9 +120,9 @@ by the Bluetooth stack to the attribute.
 | `s.ble.rns.max_peers` | `3` | Maximum simultaneous peers, 1–4. Three leaves one of the device's four Bluetooth connections for the RNode endpoint; four is the ceiling with that off. The protocol itself allows seven, but the ESP32-S3's internal RAM does not carry a larger controller beside Wi-Fi. Live; lowering it does not evict peers already linked. |
 | `s.ble.rns.min_rssi` | `-85` | Signal floor in dBm. An advertiser weaker than this is not dialled. Live. |
 | `s.ble.rns.scan_interval` | `5` | Discovery interval in seconds; sets the scan duty cycle. Live. |
-| `s.ble.rns.announce_interval` | `30` | How often this node says who it is: rnsd replays every hosted destination's announce onto every Bluetooth peer on this beat, jittered ±10 %. Minutes. `0` = never on this interface's own account — the node then says who it is only when an application changes what it advertises, when a peer arrives, or on the pane's **Announce now**. A peer that connects mid-interval is told at once regardless: it registers as its own interface and rnsd replays onto a fresh registration. Live. See [rns/README.md](../rns/README.md), "The announce beat". |
+| `s.ble.rns.announce_interval` | `30` | How often this node says who it is: rnsd replays every hosted destination's announce onto every Bluetooth peer on this beat, jittered ±10 %. Minutes. `0` = never on this interface's own account — the node then says who it is only when an application changes what it advertises, when a peer arrives, or on the pane's **Announce now**. A peer that connects mid-interval is told at once regardless: it registers as its own interface and rnsd replays onto a fresh registration. Live. See [rns/README.md](../rns/README.md), "The announce tick". |
 | `s.ble.rns.mode` | `"access_point"` | interface mode applied to every peer's interface: `full`, `gateway`, `access_point`, `roaming`, `boundary`. Changing it drops every peer so they re-register. |
-| `s.ble.rns.community_radius` | `3` | Community Radius: nodes within this many hops via a Bluetooth peer are served — their announces kept and answered for, searches run on their behalf. The wider mesh a phone relays arrives deeper than the radius, stays out of this node's directory, and is resolved on demand (the peer's own announces, path responses, claimed and in-use destinations are always kept). Changing it drops every peer so they re-register. See `rns/README.md`. |
+| `s.ble.rns.community_radius` | `3` | Service radius: nodes within this many hops via a Bluetooth peer are served — their announces kept and answered for, searches run on their behalf. The wider mesh a phone relays arrives deeper than the radius, stays out of this node's directory, and is resolved on demand (the peer's own announces, path responses, claimed and in-use destinations are always kept). Changing it drops every peer so they re-register. See `rns/README.md`. |
 | `s.ble.rns.ifac_netname` | `""` | IFAC network name. Blank at both ends = an open interface. Changing it drops every peer so they re-register. |
 | `s.ble.rns.ifac_size` | `0` | IFAC access-code length in bytes; `0` = rnsd's default. |
 
@@ -148,7 +148,7 @@ The device's own RNS identity is read from `secrets.rnsd.identity`, owned by
 | `ble.rns.traffic` | Packets in and out, as one finished line |
 | `rns.pill.ble.*` | The top status line's Bluetooth pill (blue `4d90ff`, order 6, titled "ble (Bluetooth)"), written through rnsd: `B` and how many peers are **attached and carrying RNS** — peers at `BLEIF_ST_READY`, not slots. A slot is claimed the moment a dial starts and lives through six bring-up stages, which is what the connection budget has to reserve against but is not what an operator means by "peers"; counting slots reported three during a scan burst with one attached. Shown while the mesh switch is on and at 0 as readily as at 2 — "advertising and nobody has connected" is the state an operator most needs to see. Published every second regardless of `uiTelemetryWanted()`, unlike the readout lines: it is two deduped keys, and a peer count that lags a disconnect is worse on a status line than no count at all. See [rns/README](../rns/README.md#status-line-pills) |
 
-### Command sentinels
+### Command keys
 
 | Key | Value | Effect |
 |---|---|---|
