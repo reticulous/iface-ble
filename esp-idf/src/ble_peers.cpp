@@ -162,8 +162,6 @@ static void registerWithRnsd(bleif_peer_t* p) {
     reg.bitrate = (uint32_t)s_bitrate;
     reg.mode    = s_ifaceMode;
     reg.in = reg.out = 1;
-    reg.fwd = (s_ifaceMode == RNS_IFACE_MODE_GATEWAY || s_ifaceMode == RNS_IFACE_MODE_FULL) ? 1 : 0;
-    reg.rpt = 0;
     reg.point_to_point   = 1;
     /* Who is at the far end, for the neighbourhood listing to show until this
      * peer's first announce names it — a peer that has attached and said
