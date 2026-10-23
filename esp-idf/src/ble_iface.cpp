@@ -437,6 +437,7 @@ static void applyConfig(void) {
     char ifk[sizeof(s_ifacNetkey)] = "";
     storageGetStr("s.ble.rns.ifac_netkey", ifk, sizeof(ifk), "");
     int ifs = storageGetInt("s.ble.rns.ifac_size", 0);
+    if (ifs <= 0) ifs = RNS_IFAC_SIZE_PACKET;   /* ble-reticulum BLEInterface's default */
     int radius = storageGetInt("s.ble.rns.community_radius", 3);
     char modeStr[24] = "access_point";
     storageGetStr("s.ble.rns.mode", modeStr, sizeof(modeStr), "access_point");

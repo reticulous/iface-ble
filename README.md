@@ -124,7 +124,7 @@ by the Bluetooth stack to the attribute.
 | `s.ble.rns.mode` | `"access_point"` | interface mode applied to every peer's interface: `full`, `gateway`, `access_point`, `roaming`, `boundary`. Changing it drops every peer so they re-register. |
 | `s.ble.rns.community_radius` | `3` | Service radius: nodes within this many hops via a Bluetooth peer are served — their announces kept and answered for, searches run on their behalf. The wider mesh a phone relays arrives deeper than the radius, stays out of this node's directory, and is resolved on demand (the peer's own announces, path responses, claimed and in-use destinations are always kept). Changing it drops every peer so they re-register. See `rns/README.md`. |
 | `s.ble.rns.ifac_netname` | `""` | IFAC network name. Blank at both ends = an open interface. Changing it drops every peer so they re-register. |
-| `s.ble.rns.ifac_size` | `0` | IFAC access-code length in bytes; `0` = rnsd's default. |
+| `s.ble.rns.ifac_size` | `0` | IFAC access-code length in bytes; `0` = 16, ble-reticulum BLEInterface's default. |
 
 The keys live in [spangap-ble](../spangap-ble)'s `s.ble.*` namespace so an
 operator sees one Bluetooth namespace; the radio itself, the transmit power and
